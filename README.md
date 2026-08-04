@@ -4,7 +4,7 @@
 
 This project is a network intrusion detection system (IDS) that uses machine learning to flag malicious traffic in real time. It trains on the [UNSW-NB15](https://research.unsw.edu.au/projects/unsw-nb15-dataset) dataset, a benchmark dataset of real and synthetic network traffic labeled as normal or one of nine attack categories (DoS, Exploits, Fuzzers, Reconnaissance, etc.), and then simulates a live traffic stream, flagging anomalous and malicious batches as they arrive.
 
-This system builds on a project I originally completed in 2024 as the final project for an undergraduate Machine Learning course. That version already trained the same three models (RandomForest, a TensorFlow classifier, and a malicious-activity detector NN) on the UNSW-NB15 dataset, but it stopped there: it evaluated once on a static test set and had no continuous monitoring loop and no retraining, so it couldn't act on new data after the initial training run.
+This system builds on a project I originally completed in 2024 as the final project for an undergraduate Machine Learning course, rather than one from the AI110 CodePath course. That version already trained the same three models (RandomForest, a TensorFlow classifier, and a malicious-activity detector NN) on the UNSW-NB15 dataset, but it stopped there: it evaluated once on a static test set and had no continuous monitoring loop and no retraining, so it couldn't act on new data after the initial training run.
 
 Revisiting it here, I reviewed the original implementation for bugs and design issues, then reworked it to be more correct and more capable: adding the streaming/continuous-monitoring loop and retraining step, fixing data handling edge cases, removing a data leakage bug, replacing fragile global state with a proper class, and documenting the architecture and its gaps clearly for anyone picking this up after me.
 
@@ -58,6 +58,14 @@ See [diagrams/archtecture.mmd](diagrams/archtecture.mmd) for the full Mermaid di
    This trains all three models on `UNSW_NB15_training-set.csv`, then starts the continuous monitoring loop against `UNSW_NB15_testing-set.csv`, streaming batches every 10 seconds indefinitely. Stop it with `Ctrl+C`.
 
    Logs are written both to the console (with color) and to a timestamped file in `~/Downloads/ids_system_<timestamp>.log` (ANSI codes stripped).
+
+6. **Verify it's working**
+   There's no separate test suite; the system is verified by its own console/log output as it runs. Within the first minute you should see, in order:
+   - `Random Forest model trained successfully with Test Accuracy: ...` and similar lines for the TensorFlow and malicious-activity models, confirming initial training completed.
+   - `Logging to ~/Downloads/ids_system_<timestamp>.log`, confirming the log file was created (open it to see the same output with ANSI colors stripped).
+   - As batches stream in, either no output (normal batch), an anomaly table (see Sample Interactions below), or a `WARNING - Malicious activity DETECTED!` line, followed by either `Model updated with new data. Validation accuracy: X -> Y` or `Update REJECTED: validation accuracy would drop from X to Y` (see Reliability Component below).
+
+   If you see a `Traceback` instead, the most common cause is a Python/TensorFlow version mismatch (step 2) or missing dataset files in the project root.
 
 ## Sample Interactions
 
