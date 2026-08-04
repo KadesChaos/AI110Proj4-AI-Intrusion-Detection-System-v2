@@ -5,50 +5,65 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import time
 
-scaler = StandardScaler()  # Initialize the scaler
-feature_columns = None  # This will store all possible columns after initial one-hot encoding
-scaler_fitted = False  # Guards against silently refitting the scaler on new data
-
 def load_data(filepath):
     data = pd.read_csv(filepath)
     logging.info("Data loaded successfully.")
     return data
 
+class Preprocessor:
+    """Holds the fitted scaler and training feature columns for one pipeline run.
+
+    Kept as an instantiable class (rather than module globals) so multiple
+    pipelines (e.g. separate model versions, or tests) can preprocess data
+    independently without clobbering each other's fitted state.
+    """
+
+    def __init__(self):
+        self.scaler = StandardScaler()
+        self.feature_columns = None
+        self.scaler_fitted = False
+
+    def preprocess_data(self, data, fit_scaler=False, is_train=False, label_column='label'):
+        if data is None:
+            logging.warning("No data to preprocess.")
+            return None, None
+
+        data = data.copy()
+        data.ffill(inplace=True)
+        data.bfill(inplace=True)  # ffill alone leaves leading NaNs unfilled
+        data_encoded = pd.get_dummies(data)
+
+        if is_train:
+            self.feature_columns = data_encoded.columns  # Save the columns from the train data
+        else:
+            if self.feature_columns is None:
+                raise RuntimeError(
+                    "feature_columns is not set: call preprocess_data(..., is_train=True) "
+                    "on training data before preprocessing inference/streamed data."
+                )
+            data_encoded = data_encoded.reindex(columns=self.feature_columns, fill_value=0)
+
+        if fit_scaler:
+            if self.scaler_fitted:
+                logging.warning("Scaler was already fitted; refitting will invalidate previously trained models.")
+            self.scaler.fit(data_encoded.drop(label_column, axis=1))
+            self.scaler_fitted = True
+            logging.info("Scaler fitted on initial data.")
+
+        if not self.scaler_fitted:
+            raise RuntimeError("Scaler is not fitted yet: call preprocess_data(..., fit_scaler=True) first.")
+
+        features = self.scaler.transform(data_encoded.drop(label_column, axis=1))
+        labels = data_encoded[label_column].values
+        logging.info("Data preprocessed successfully.")
+        return features, labels
+
+# Default shared instance + module-level wrapper so existing call sites
+# (train.py, ids_system.py) that call preprocess_data(...) directly keep working.
+_default_preprocessor = Preprocessor()
+
 def preprocess_data(data, fit_scaler=False, is_train=False, label_column='label'):
-    global feature_columns, scaler, scaler_fitted
-    if data is None:
-        logging.warning("No data to preprocess.")
-        return None, None
-
-    data = data.copy()
-    data.ffill(inplace=True)
-    data.bfill(inplace=True)  # ffill alone leaves leading NaNs unfilled
-    data_encoded = pd.get_dummies(data)
-
-    if is_train:
-        feature_columns = data_encoded.columns  # Save the columns from the train data
-    else:
-        if feature_columns is None:
-            raise RuntimeError(
-                "feature_columns is not set: call preprocess_data(..., is_train=True) "
-                "on training data before preprocessing inference/streamed data."
-            )
-        data_encoded = data_encoded.reindex(columns=feature_columns, fill_value=0)
-
-    if fit_scaler:
-        if scaler_fitted:
-            logging.warning("Scaler was already fitted; refitting will invalidate previously trained models.")
-        scaler.fit(data_encoded.drop(label_column, axis=1))
-        scaler_fitted = True
-        logging.info("Scaler fitted on initial data.")
-
-    if not scaler_fitted:
-        raise RuntimeError("Scaler is not fitted yet: call preprocess_data(..., fit_scaler=True) first.")
-
-    features = scaler.transform(data_encoded.drop(label_column, axis=1))
-    labels = data_encoded[label_column].values
-    logging.info("Data preprocessed successfully.")
-    return features, labels
+    return _default_preprocessor.preprocess_data(data, fit_scaler=fit_scaler, is_train=is_train, label_column=label_column)
 
 def data_split(features, labels, test_size=0.2, random_state=42):
     X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=test_size, random_state=random_state)
