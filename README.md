@@ -4,6 +4,8 @@
 
 This project is a network intrusion detection system (IDS) that uses machine learning to flag malicious traffic in real time. It trains on the [UNSW-NB15](https://research.unsw.edu.au/projects/unsw-nb15-dataset) dataset, a benchmark dataset of real and synthetic network traffic labeled as normal or one of nine attack categories (DoS, Exploits, Fuzzers, Reconnaissance, etc.), and then simulates a live traffic stream, flagging anomalous and malicious batches as they arrive.
 
+This system builds on a project I originally completed as my undergraduate capstone. Revisiting it here, I reviewed the original implementation for bugs and design issues, then reworked it to be more correct and more maintainable: fixing data handling edge cases, removing a data leakage bug, replacing fragile global state with a proper class, and documenting the architecture and its gaps clearly for anyone picking this up after me.
+
 It matters because traditional signature-based IDS tools only catch attacks they've already seen. A learned model can generalize to traffic patterns that look statistically abnormal even if no rule was ever written for them. The tradeoff is that it can also be wrong in ways a hand-written rule wouldn't be, which is part of why this project treats the detector as a first-pass filter, not a final verdict (see Design Decisions and `model_card.md`).
 
 ## Architecture Overview
