@@ -13,7 +13,10 @@ flowchart TD
 
     C[Input: UNSW_NB15 testing CSV] -->|simulate_data_stream\nbatch every 10s| D[/Streamed batch/]
     D -->|preprocess_data: reindex + scale| E[(Batch features)]
-    C -->|data_split: held out 20%\nbefore streaming starts| VAL[(Validation features + labels)]
+    C -->|preprocess_data + data_split:\nheld out 20% before streaming starts| VAL[(Validation features + labels)]
+    C -->|remaining 80%| MONINIT[TF monitor model:\ninitialize + pre-fit\nids_system.py]
+
+    MONINIT -.same model instance,\nupdated each loop iteration.-> RETRAIN
 
     subgraph Retriever["Detector stack (retriever-equivalent) — ids_system.py, train.py"]
         E --> ISO[IsolationForest\nanomaly detector]
