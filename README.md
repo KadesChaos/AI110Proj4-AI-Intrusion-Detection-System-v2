@@ -8,6 +8,8 @@ This system builds on a project I originally completed as my undergraduate capst
 
 It matters because traditional signature-based IDS tools only catch attacks they've already seen. A learned model can generalize to traffic patterns that look statistically abnormal even if no rule was ever written for them. The tradeoff is that it can also be wrong in ways a hand-written rule wouldn't be, which is part of why this project treats the detector as a first-pass filter, not a final verdict (see Design Decisions and `model_card.md`).
 
+All machine learning in this project runs entirely locally: scikit-learn (RandomForest, IsolationForest) and TensorFlow/Keras models are trained and run on your own machine, with no API keys, external services, or hosted model calls required. AI coding assistance was used during development to help review, fix, and document the code (see `model_card.md`), but the IDS itself has no runtime dependency on any external AI service.
+
 ## Architecture Overview
 
 See [diagrams/archtecture.mmd](diagrams/archtecture.mmd) for the full Mermaid diagram. At a high level:
