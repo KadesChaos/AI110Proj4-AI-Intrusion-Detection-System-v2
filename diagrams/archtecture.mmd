@@ -1,0 +1,46 @@
+flowchart TD
+    subgraph Data["data_handler.py"]
+        A[UNSW_NB15_training-set.csv] -->|load_data| B[raw DataFrame]
+        B -->|ffill + one-hot encode| C[encoded features]
+        C -->|StandardScaler.fit_transform| D[(scaled train features + labels)]
+        E[UNSW_NB15_testing-set.csv] -->|load_data| F[raw DataFrame]
+        F -->|reindex to train columns + scaler.transform| G[(scaled test features)]
+        F -->|simulate_data_stream batches every 10s| H[/streamed batch/]
+        H -->|reindex + transform| I[(scaled batch features)]
+    end
+
+    subgraph Train["train.py: train_models()"]
+        D --> RF[RandomForestClassifier]
+        D --> TF[TensorFlow binary classifier]
+        D --> MAL0[Malicious detector NN]
+    end
+
+    subgraph Models["models.py"]
+        RF -.initialize_random_forest.-> RF
+        TF -.initialize_tensorflow_model.-> TF
+        MAL0 -.initialize_malicious_detector.-> MAL0
+    end
+
+    G --> ISO[IsolationForest anomaly detector\ntrain_anomaly_detector]
+    G --> TFmon[fresh TensorFlow monitor model]
+    G --> MAL[fresh malicious detector]
+
+    subgraph Loop["ids_system.py: run_continuous_ids() loop"]
+        I -->|detect_anomalies| J{Anomaly found?}
+        J -->|no| I
+        J -->|yes| K[describe_anomalies\nbuild CRITICAL/OK table]
+        K --> L{detect_malicious_activities\nabove threshold?}
+        L -->|yes| M[log.warning: Malicious activity DETECTED]
+        L -->|no| N[log details only]
+        M --> O[update_model: retrain TF monitor\non this batch]
+        N --> O
+        O --> I
+    end
+
+    ISO --> J
+    TFmon --> O
+    MAL --> L
+
+    style M fill:#b91c1c,color:#fff
+    style J fill:#1f2937,color:#fff
+    style L fill:#1f2937,color:#fff
