@@ -29,6 +29,7 @@ Early on, when asked to "run it and show results," Claude generated a small synt
 - **No adversarial robustness testing.** The detectors were not tested against inputs specifically crafted to evade anomaly/classification thresholds, which is a realistic concern for a security-facing system.
 - **Streaming simulation, not real streaming.** `simulate_data_stream` replays a static test CSV in a loop, it does not ingest live network traffic, so timing, ordering, and volume characteristics of a real deployment are not represented here.
 - **Binary label only.** The system detects "is this malicious" but (after removing `attack_cat` to prevent leakage) does not classify *which* attack category was detected, which would be useful operationally but was out of scope for this fix.
+- **Low-and-slow attacks blended into normal traffic can evade the anomaly gate.** `evaluate_system.py` (see README) found that a batch mixing Normal and Reconnaissance traffic did not trigger `IsolationForest`, because its `contamination=0.01` setting only flags the most extreme ~1% of a batch, and Reconnaissance traffic doesn't always look statistically extreme in this feature space. This means an attacker whose traffic blends in well could pass through undetected, a real gap surfaced by testing, not a hypothetical one.
 
 ## Future improvements
 

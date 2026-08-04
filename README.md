@@ -130,6 +130,30 @@ Model updated with new data. Validation accuracy: 0.9614 -> 0.9620
 
 This is a real functional check, not a cosmetic log message: three consecutive updates were actually rejected and rolled back in that run, and the model that stayed in production was measurably more accurate on held-out data than if every update had been accepted blindly.
 
+## Test Harness: evaluate_system.py
+
+`evaluate_system.py` is a standalone evaluation script, separate from the runtime evaluation gate above. It trains the models once, then runs three predefined test batches through the detector stack and checks whether the system's behavior matches expectations, printing a pass/fail summary at the end.
+
+Run it with:
+```
+python evaluate_system.py
+```
+
+Test cases and a real captured result:
+```
+[PASS] Normal-only batch: anomaly_detected=False (expected False)
+[PASS] Heavily malicious batch (Generic/DoS/Exploits): anomaly_detected=True, malicious_detected=True (expected both True)
+[FAIL] Mixed batch (half Normal, half Reconnaissance): anomaly_detected=False (expected True)
+
+SUMMARY
+  PASS - Normal-only batch
+  PASS - Heavily malicious batch (Generic/DoS/Exploits)
+  FAIL - Mixed batch (half Normal, half Reconnaissance)
+
+2/3 test cases passed.
+```
+The third case is a real, informative failure rather than a harness bug: `IsolationForest` is configured with `contamination=0.01`, meaning it only flags the most extreme ~1% of a batch as anomalous. A 50/50 mix of Normal and Reconnaissance traffic doesn't necessarily contain a strong enough outlier to cross that bar, since Reconnaissance traffic doesn't always look statistically extreme in this feature space. This is a useful, concrete finding about the detector's blind spot, not something to paper over: a low-and-slow scan blended into normal-looking traffic can currently slip past the anomaly gate. Exit code is `0` only if all cases pass, so this can be wired into CI as a real gate on future changes.
+
 ## Design Decisions
 
 - **Three separate models instead of one.** RandomForest gives a fast, interpretable baseline. The TensorFlow classifier and the dedicated malicious-activity NN add non-linear pattern detection and let the alerting logic require agreement between an anomaly detector and a classifier before escalating to `WARNING`, rather than trusting a single model's threshold. Trade-off: more training time and more moving parts to keep in sync (e.g. all three need the same preprocessing pipeline).
