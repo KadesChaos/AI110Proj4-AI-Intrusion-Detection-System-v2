@@ -25,9 +25,37 @@ def train_models(features, labels):
     malicious_model.fit(X_train, y_train > 0, epochs=5)
     print("\033[92m" + "\nMalicious activity detector trained successfully.\n" + "\033[0m")
 
-def update_model(model, features, labels):
-    model.fit(features, labels, epochs=5, validation_split=0.2)
-    print("\033[1m" + "Model updated with new data.\n" + "\033[0m")
+def evaluate_model(model, val_features, val_labels):
+    _, accuracy = model.evaluate(val_features, val_labels, verbose=0)
+    return accuracy
+
+def update_model(model, features, labels, val_features=None, val_labels=None, min_accuracy_delta=-0.02):
+    """Retrain model on new data, but only keep the update if it doesn't regress
+    accuracy on a held-out validation set by more than min_accuracy_delta.
+
+    Without this gate, every streamed batch (even a bad or adversarial one) would
+    permanently alter the live model with no check on whether it actually helped.
+    """
+    if val_features is None or val_labels is None:
+        model.fit(features, labels, epochs=5, validation_split=0.2)
+        print("\033[1m" + "Model updated with new data (no evaluation gate configured).\n" + "\033[0m")
+        return True
+
+    pre_update_weights = model.get_weights()
+    baseline_accuracy = evaluate_model(model, val_features, val_labels)
+
+    model.fit(features, labels, epochs=5, validation_split=0.2, verbose=0)
+    new_accuracy = evaluate_model(model, val_features, val_labels)
+
+    if new_accuracy < baseline_accuracy + min_accuracy_delta:
+        model.set_weights(pre_update_weights)
+        print("\033[91m" + f"Update REJECTED: validation accuracy would drop from "
+              f"{baseline_accuracy:.4f} to {new_accuracy:.4f}. Rolled back to previous weights.\n" + "\033[0m")
+        return False
+
+    print("\033[1m" + f"Model updated with new data. Validation accuracy: "
+          f"{baseline_accuracy:.4f} -> {new_accuracy:.4f}\n" + "\033[0m")
+    return True
 
 def train_anomaly_detector(features):
     isol_forest = IsolationForest(n_estimators=100, contamination=0.01)

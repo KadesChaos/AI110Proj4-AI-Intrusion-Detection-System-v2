@@ -7,7 +7,7 @@ import logging
 import re
 from train import (train_models, update_model, train_anomaly_detector, detect_anomalies,
                    detect_malicious_activities, describe_anomalies)
-from data_handler import load_data, preprocess_data, simulate_data_stream
+from data_handler import load_data, preprocess_data, simulate_data_stream, data_split
 from models import initialize_tensorflow_model, initialize_malicious_detector
 from datetime import datetime
 
@@ -75,10 +75,16 @@ def run_ids():
 def run_continuous_ids(testing_filepath):
     test_data = load_data(testing_filepath)
     features, labels = preprocess_data(test_data, fit_scaler=False, is_train=False)
+
+    # Hold out a validation slice up front so retraining can be checked against
+    # data the model was never updated on, instead of accepting every update blindly.
+    features, val_features, labels, val_labels = data_split(features, labels, test_size=0.2)
+
     model = initialize_tensorflow_model(features.shape[1])
+    model.fit(features, labels, epochs=5, validation_split=0.2, verbose=0)
     anomaly_detector = train_anomaly_detector(features)
     malicious_detector = initialize_malicious_detector(features.shape[1])
-    
+
     try:
         for new_data in simulate_data_stream(test_data):
             new_features, _ = preprocess_data(new_data, fit_scaler=False, is_train=False)
@@ -88,7 +94,7 @@ def run_continuous_ids(testing_filepath):
                 anomalies_details = describe_anomalies(new_features, anomalies_indices)
                 if detect_malicious_activities(malicious_detector, new_features).any():
                     logging.warning("Malicious activity DETECTED! Details: {}".format(anomalies_details))
-                update_model(model, new_features, _)
+                update_model(model, new_features, _, val_features=val_features, val_labels=val_labels)
     except KeyboardInterrupt:
         logging.info("Process interrupted by user, shutting down.")
     finally:
