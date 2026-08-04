@@ -29,3 +29,11 @@ Early on, when asked to "run it and show results," Claude generated a small synt
 - **No adversarial robustness testing.** The detectors were not tested against inputs specifically crafted to evade anomaly/classification thresholds, which is a realistic concern for a security-facing system.
 - **Streaming simulation, not real streaming.** `simulate_data_stream` replays a static test CSV in a loop, it does not ingest live network traffic, so timing, ordering, and volume characteristics of a real deployment are not represented here.
 - **Binary label only.** The system detects "is this malicious" but (after removing `attack_cat` to prevent leakage) does not classify *which* attack category was detected, which would be useful operationally but was out of scope for this fix.
+
+## Future improvements
+
+- **Replace the fixed accuracy-delta gate with an F1-based check**, since the dataset (and real traffic) is imbalanced toward normal activity; accuracy alone can look fine while missing rare attack categories entirely.
+- **Add a lightweight human review queue** for `WARNING` alerts, even a simple accept/reject log a security analyst could annotate, so false positives stop being silently retrained on and instead become labeled feedback the system could eventually learn from.
+- **Re-evaluate on a more current dataset** or at least benchmark how much accuracy degrades on more recent traffic captures, to get a real read on how stale UNSW-NB15 has become for this purpose.
+- **Add basic adversarial testing**, e.g. perturbing feature values near the anomaly/malicious thresholds to see how easily the detectors can be evaded, before trusting this system anywhere near a real network.
+- **Extend beyond binary classification** to predict attack category (multi-class), which is more actionable for a real response team than a single "malicious" flag.
