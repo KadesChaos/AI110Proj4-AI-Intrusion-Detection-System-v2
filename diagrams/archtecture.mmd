@@ -1,46 +1,43 @@
 flowchart TD
-    subgraph Data["data_handler.py"]
-        A[UNSW_NB15_training-set.csv] -->|load_data| B[raw DataFrame]
-        B -->|ffill + one-hot encode| C[encoded features]
-        C -->|StandardScaler.fit_transform| D[(scaled train features + labels)]
-        E[UNSW_NB15_testing-set.csv] -->|load_data| F[raw DataFrame]
-        F -->|reindex to train columns + scaler.transform| G[(scaled test features)]
-        F -->|simulate_data_stream batches every 10s| H[/streamed batch/]
-        H -->|reindex + transform| I[(scaled batch features)]
+    A[Input: UNSW_NB15 training CSV] -->|load_data + ffill/one-hot/scale\ndata_handler.py| B[(Train features + labels)]
+
+    subgraph Trainer["Trainer / Agent — train.py, models.py"]
+        B --> RF[RandomForest\nclassifier]
+        B --> TF[TensorFlow\nclassifier]
+        B --> MALtrain[Malicious-activity\ndetector NN]
     end
 
-    subgraph Train["train.py: train_models()"]
-        D --> RF[RandomForestClassifier]
-        D --> TF[TensorFlow binary classifier]
-        D --> MAL0[Malicious detector NN]
+    RF --> EVAL{{"Evaluator? — MISSING\ntrain.py only prints\ntest-split accuracy,\nno gate before deploy"}}
+    TF --> EVAL
+    MALtrain --> EVAL
+    EVAL -.TODO: block deploy on\nheld-out metric threshold.-> DEPLOY[Deploy models\nto live monitor]
+
+    C[Input: UNSW_NB15 testing CSV] -->|simulate_data_stream\nbatch every 10s| D[/Streamed batch/]
+    D -->|preprocess_data: reindex + scale| E[(Batch features)]
+
+    subgraph Retriever["Detector stack (retriever-equivalent) — ids_system.py, train.py"]
+        E --> ISO[IsolationForest\nanomaly detector]
+        ISO -->|detect_anomalies| F{Anomaly?}
+        F -->|no| E
+        F -->|yes| G[describe_anomalies\nCRITICAL/OK table]
+        G --> MAL[Malicious detector NN]
+        MAL -->|detect_malicious_activities| H{Above threshold?}
     end
 
-    subgraph Models["models.py"]
-        RF -.initialize_random_forest.-> RF
-        TF -.initialize_tensorflow_model.-> TF
-        MAL0 -.initialize_malicious_detector.-> MAL0
-    end
+    H -->|yes| ALERT[log.warning:\nMalicious activity DETECTED]
+    H -->|no| LOGONLY[log details only]
 
-    G --> ISO[IsolationForest anomaly detector\ntrain_anomaly_detector]
-    G --> TFmon[fresh TensorFlow monitor model]
-    G --> MAL[fresh malicious detector]
+    ALERT --> TESTER{{"Human/Tester checkpoint — MISSING\nno analyst review, no auto-triage;\nalert goes straight to retrain"}}
+    LOGONLY --> UPDATE
 
-    subgraph Loop["ids_system.py: run_continuous_ids() loop"]
-        I -->|detect_anomalies| J{Anomaly found?}
-        J -->|no| I
-        J -->|yes| K[describe_anomalies\nbuild CRITICAL/OK table]
-        K --> L{detect_malicious_activities\nabove threshold?}
-        L -->|yes| M[log.warning: Malicious activity DETECTED]
-        L -->|no| N[log details only]
-        M --> O[update_model: retrain TF monitor\non this batch]
-        N --> O
-        O --> I
-    end
+    TESTER -.TODO: analyst confirms\ntrue/false positive.-> UPDATE[update_model:\nretrain TF monitor on batch\ntrain.py]
+    UPDATE --> E
 
-    ISO --> J
-    TFmon --> O
-    MAL --> L
+    DEPLOY --> ISO
+    DEPLOY --> MAL
 
-    style M fill:#b91c1c,color:#fff
-    style J fill:#1f2937,color:#fff
-    style L fill:#1f2937,color:#fff
+    style EVAL fill:#7c2d12,color:#fff,stroke-dasharray: 5 5
+    style TESTER fill:#7c2d12,color:#fff,stroke-dasharray: 5 5
+    style ALERT fill:#b91c1c,color:#fff
+    style F fill:#1f2937,color:#fff
+    style H fill:#1f2937,color:#fff
