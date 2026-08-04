@@ -19,8 +19,9 @@ See [diagrams/archtecture.mmd](diagrams/archtecture.mmd) for the full Mermaid di
 1. **Data ingestion** (`data_handler.py`): loads the UNSW-NB15 CSVs, drops the `attack_cat` label-leakage column, fills missing values, one-hot encodes categorical fields, and scales numeric features with a `StandardScaler`.
 2. **Trainer** (`train.py`, `models.py`): trains three models on the full training set: a `RandomForestClassifier`, a small TensorFlow feed-forward classifier, and a separate TensorFlow "malicious activity" detector.
 3. **Detector stack** (retriever-equivalent): an `IsolationForest` anomaly detector and the malicious-activity NN both score each streamed batch of test data.
-4. **Streaming loop** (`ids_system.py`): replays the test set in batches (`simulate_data_stream`), checks each batch for anomalies, describes any hits in a table, escalates to a `WARNING` log if the malicious detector agrees, and retrains the TF monitor model on that batch before continuing.
-5. **Evaluator / Human-in-the-loop gate: currently missing.** The diagram marks this explicitly. There is no held-out metric threshold gating whether a retrained model gets deployed, and no human review step before an alert triggers automatic retraining. This is a known gap, not an oversight. See Design Decisions.
+4. **Streaming loop** (`ids_system.py`): replays the test set in batches (`simulate_data_stream`), checks each batch for anomalies, describes any hits in a table, escalates to a `WARNING` log if the malicious detector agrees, and attempts to retrain the TF monitor model on that batch before continuing.
+5. **Evaluator** (`train.py: evaluate_model`, `update_model`): before any retrained model replaces the live one, its accuracy is checked against a held-out validation split (carved out of the test set before streaming starts). If the update would regress accuracy beyond a small tolerance, it's rejected and the model rolls back to its pre-update weights. This closes the "silently retrain on every batch, alert or not" gap the original streaming loop had.
+6. **Human-in-the-loop review: still missing.** There is no analyst confirmation step before a `WARNING` alert is logged, and no way to mark an alert as a false positive. This remains a known gap. See Design Decisions.
 
 ## Setup Instructions
 
@@ -98,7 +99,15 @@ Malicious activity detected:
 |      97 | Memory Usage             |    1.69 | OK       |
 ...
 ```
-This confirms the full path works end to end: stream batch, detect anomaly, cross-check with malicious detector, escalate to a `WARNING` log, then retrain the monitor model on the new data.
+This confirms the full path works end to end: stream batch, detect anomaly, cross-check with malicious detector, escalate to a `WARNING` log, then attempt to retrain the monitor model on the new data.
+
+**Example 4: Retraining update rejected by the evaluation gate**
+```
+Input:  a streamed batch that, after retraining, would drop held-out validation accuracy
+Output:
+Update REJECTED: validation accuracy would drop from 0.9611 to 0.8386. Rolled back to previous weights.
+```
+Captured from a real run: several early batches were rejected this way (accuracy would have dropped to 0.84, 0.87, and 0.94), while later batches were accepted once they no longer regressed the held-out score, and validation accuracy climbed steadily from 0.9611 to 0.966 over the run. Before this gate existed, every batch was accepted unconditionally, so a single bad or adversarial batch could have silently degraded the live model with no way to notice.
 
 ## Design Decisions
 
@@ -106,7 +115,8 @@ This confirms the full path works end to end: stream batch, detect anomaly, cros
 - **Unsupervised anomaly detection (`IsolationForest`) gates the supervised malicious-activity check.** This mirrors a real SOC (Security Operations Center) workflow: broad, cheap anomaly triage first, narrower and more expensive classification second. Trade-off: a genuinely malicious but statistically "normal-looking" batch could slip past the first gate.
 - **`attack_cat` is dropped before encoding.** This column directly determines the binary `label` (anything other than `"Normal"` implies `label=1`), so leaving it in as a one-hot-encoded feature would let the model trivially memorize the label instead of learning from actual traffic features. That's a subtle form of data leakage that would have made offline accuracy look artificially perfect. This was caught during review and fixed in `data_handler.py`.
 - **The scaler and feature-column list are encapsulated in a `Preprocessor` class**, not module-level globals. The original code used global mutable state, which meant two pipelines (e.g. testing vs. production, or parallel experiments) in the same process would silently overwrite each other's fitted scaler. Trade-off: a small amount of extra indirection (a class instance) for a meaningful correctness guarantee.
-- **No evaluator gate, no human-in-the-loop review, by design of what's *missing*, not what's built.** The streaming loop currently retrains the monitor model on every batch it sees, alert or not, with no accuracy check before that retrained model keeps running and no human confirming a `WARNING` is a true positive before the system acts on it. This is called out explicitly in the architecture diagram as unfinished work rather than glossed over, because in a real deployment, silently auto-retraining on unverified streaming data is a way to let a model drift or be poisoned over time.
+- **Evaluation gate before accepting a retrained model.** `update_model` now snapshots the model's weights, retrains, and re-evaluates against a held-out validation split carved out of the test set before streaming starts. If accuracy would drop by more than a small tolerance, the update is rejected and the previous weights are restored. Trade-off: this costs an extra forward pass per batch and needs a validation split set aside up front, and the accuracy-delta threshold is a blunt instrument (a smarter version might track a moving baseline, or use a metric better suited to imbalanced classes like F1, instead of a fixed tolerance).
+- **Human-in-the-loop review is still missing, by design of what's *not yet built*.** There is no analyst confirming a `WARNING` is a true positive before the system logs it, and no feedback mechanism to mark a false positive so the system learns from that correction. This is called out explicitly in the architecture diagram as unfinished work rather than glossed over, because a security system that only self-checks its own accuracy still has no way to catch a mistake a human would have caught (e.g. a `WARNING` that's technically anomalous but operationally benign).
 
 ## Testing Summary
 

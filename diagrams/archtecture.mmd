@@ -7,13 +7,13 @@ flowchart TD
         B --> MALtrain[Malicious-activity\ndetector NN]
     end
 
-    RF --> EVAL{{"Evaluator? — MISSING\ntrain.py only prints\ntest-split accuracy,\nno gate before deploy"}}
-    TF --> EVAL
-    MALtrain --> EVAL
-    EVAL -.TODO: block deploy on\nheld-out metric threshold.-> DEPLOY[Deploy models\nto live monitor]
+    RF --> DEPLOY[Deploy models\nto live monitor]
+    TF --> DEPLOY
+    MALtrain --> DEPLOY
 
     C[Input: UNSW_NB15 testing CSV] -->|simulate_data_stream\nbatch every 10s| D[/Streamed batch/]
     D -->|preprocess_data: reindex + scale| E[(Batch features)]
+    C -->|data_split: held out 20%\nbefore streaming starts| VAL[(Validation features + labels)]
 
     subgraph Retriever["Detector stack (retriever-equivalent) — ids_system.py, train.py"]
         E --> ISO[IsolationForest\nanomaly detector]
@@ -27,17 +27,23 @@ flowchart TD
     H -->|yes| ALERT[log.warning:\nMalicious activity DETECTED]
     H -->|no| LOGONLY[log details only]
 
-    ALERT --> TESTER{{"Human/Tester checkpoint — MISSING\nno analyst review, no auto-triage;\nalert goes straight to retrain"}}
-    LOGONLY --> UPDATE
+    ALERT --> TESTER{{"Human/Tester checkpoint — MISSING\nno analyst review, no auto-triage;\nalert goes straight to retrain attempt"}}
+    LOGONLY --> RETRAIN
 
-    TESTER -.TODO: analyst confirms\ntrue/false positive.-> UPDATE[update_model:\nretrain TF monitor on batch\ntrain.py]
-    UPDATE --> E
+    TESTER -.TODO: analyst confirms\ntrue/false positive.-> RETRAIN[retrain TF monitor\non batch: train.py]
+    RETRAIN --> EVAL{{"Evaluator: update_model\nchecks retrained model against\nheld-out validation split"}}
+    VAL --> EVAL
+    EVAL -->|accuracy holds\nor improves| ACCEPT[Accept update\nkeep new weights]
+    EVAL -->|accuracy regresses\nbeyond tolerance| REJECT[Reject update\nroll back to previous weights]
+    ACCEPT --> E
+    REJECT --> E
 
     DEPLOY --> ISO
     DEPLOY --> MAL
 
-    style EVAL fill:#7c2d12,color:#fff,stroke-dasharray: 5 5
     style TESTER fill:#7c2d12,color:#fff,stroke-dasharray: 5 5
+    style EVAL fill:#14532d,color:#fff
+    style REJECT fill:#b91c1c,color:#fff
     style ALERT fill:#b91c1c,color:#fff
     style F fill:#1f2937,color:#fff
     style H fill:#1f2937,color:#fff
